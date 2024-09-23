@@ -1,10 +1,11 @@
 Overview: 
-As an experienced DevOps Engineer keeping all industry standard security measures along with proper error handling, develop a system that automatically manages the lifecycle of a web application hosted on  EC2 instances, monitors its health, and reacts to changes in traffic by scaling resources.  Furthermore, administrators receive notifications regarding the infrastructure's health and scaling events. 
+Develop a system that automatically manages the lifecycle of a web application hosted on  EC2 instances, monitors its health, and reacts to changes in traffic by scaling resources.  Furthermore, administrators receive notifications regarding the infrastructure's health and scaling events. 
 Detailed Breakdown: 
 1. Web Application Deployment: 
  - Use `boto3` to: 
  - Create an S3 bucket to store your web application's static files. 
- - Launch an EC2 instance and configure it as a web server (e.g., Apache, Nginx).  - Deploy the web application onto the EC2 instance. 
+ - Launch an EC2 instance and configure it as a web server (e.g., Apache, Nginx).
+ - Deploy the web application onto the EC2 instance. 
 2. Load Balancing with ELB: 
  - Deploy an Application Load Balancer (ALB) using `boto3`. 
  - Register the EC2 instance(s) with the ALB. 
@@ -26,10 +27,11 @@ Detailed Breakdown:
 Objectives: 
 - Gain a comprehensive understanding of key AWS services and their integration. - Understand the lifecycle of a dynamic web application and its infrastructure.
 - Learn how to automate infrastructure deployment and management tasks using boto3. - Experience with real-time monitoring and alerting systems.
--
-This sounds like a comprehensive and robust system! Here’s a step-by-step guide to help you implement it:
+  
 
-1. Web Application Deployment
+
+1. Web Application Deployment:
+
 Create an S3 bucket using boto3:
 import boto3
 from botocore.exceptions import ClientError
@@ -51,7 +53,7 @@ def create_s3_bucket(bucket_name):
         else:
             print(f"Unexpected error: {e}")
             
-bucket_name = 'your-bucket-name'
+bucket_name = 'your-bucket-name'   # Replace with your bucket name
 create_s3_bucket(bucket_name)
 
 Launch an EC2 instance and configure it as a web server:
@@ -63,11 +65,11 @@ def create_ec2_instance():
             MinCount=1,
             MaxCount=1,
             InstanceType='t2.micro',
-            KeyName='your-key-pair-name',
+            KeyName='your-key-pair-name',   # Replace with your key pair name
             SecurityGroupIds=['sg-0123456789abcdef0'],  # Replace with your security group ID
             UserData='''#!/bin/bash
-            sudo yum update -y
-            sudo yum install -y nginx
+            sudo apt-get update -y
+            sudo apt-get install nginx -y
             sudo systemctl start nginx
             sudo systemctl enable nginx
             echo "Hello World from $(hostname -f)" | sudo tee /usr/share/nginx/html/index.html
@@ -85,8 +87,7 @@ def create_ec2_instance():
 
 create_ec2_instance()
 
-
-Deploy the web application onto the EC2 instance: You can use SSH to connect to the instance and deploy your application manually or automate it using a script.
+Deploy the web application onto the EC2 instance:
 
 
 2. Load Balancing with ELB
@@ -101,16 +102,16 @@ response = elb.create_load_balancer(
     Tags=[
         {
             'Key': 'Name',
-            'Value': 'my-load-balancer'
+            'Value': 'my-load-balancer'   # Replace with your Load Balancer name
         },
-    ],
+     },
     Type='application',
     IpAddressType='ipv4'
 )
 
 Register the EC2 instance(s) with the ALB:
 target_group = elb.create_target_group(
-    Name='my-targets',
+    Name='my-targets',   # Replace with a target group name you wish to create
     Protocol='HTTP',
     Port=80,
     VpcId='vpc-0123456789abcdef0',  # Replace with your VPC ID
