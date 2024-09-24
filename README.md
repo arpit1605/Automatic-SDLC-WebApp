@@ -208,33 +208,67 @@ def create_auto_scaling_group():
 
 create_auto_scaling_group()
 
+# SNS Notifications:
+def create_sns_topic(topic_name):
+    try:
+        sns = boto3.client('sns')
+        response = sns.create_topic(Name=topic_name)
+        print(f"Successfully created topic '{topic_name}' with ARN: {response['TopicArn']}")
+        return response['TopicArn']
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+        return None
 
+def subscribe_lambda_to_topic(topic_arn, lambda_arn):
+    try:
+        sns = boto3.client('sns')
+        response = sns.subscribe(
+            TopicArn=topic_arn,
+            Protocol='lambda',
+            Endpoint=lambda_arn
+        )
+        print(f"Successfully subscribed Lambda function to topic {topic_arn} with subscription ARN: {response['SubscriptionArn']}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
 
+def lambda_handler(event, context):
+    sns = boto3.client('sns')
+    message = event['Records'][0]['Sns']['Message']
+    subject = event['Records'][0]['Sns']['Subject']
+    # Define the administrator's email and phone number
+    admin_email = 'admin@example.com'
+    admin_phone = '+1234567890'
+    try:
+        # Send email notification
+        sns.publish(
+            TopicArn='arn:aws:sns:region:account-id:AdminNotifications',
+            Message=message,
+            Subject=subject
+        )
+        print(f"Successfully sent email notification to {admin_email}")
+        # Send SMS notification
+        sns.publish(
+            PhoneNumber=admin_phone,
+            Message=message
+        )
+        print(f"Successfully sent SMS notification to {admin_phone}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Notifications sent successfully!')
+    }
 
+topics = ['HealthIssues', 'ScalingEvents', 'HighTraffic']
+topic_arns = {}
 
-4. SNS Notifications
-Set up SNS topics:
-sns = boto3.client('sns')
-topic = sns.create_topic(Name='my-topic')
-topic_arn = topic['TopicArn']
+# Create topics and store their ARNs
+for topic in topics:
+    arn = create_sns_topic(topic)
+    if arn:
+        topic_arns[topic] = arn
 
-sns.subscribe(
-    TopicArn=topic_arn,
-    Protocol='email',
-    Endpoint='admin@example.com'  # Replace with your email
-)
-
-Integrate SNS with Lambda: You can create a Lambda function that triggers on specific CloudWatch alarms and publishes messages to the SNS topic.
-
-
-5. Infrastructure Automation
-Create a single script using boto3: Combine all the above steps into a single Python script to automate the deployment, updating, and teardown of the infrastructure.
-
-
-6. Optional Enhancement – Dynamic Content Handling
-Store user-generated content on S3:
-# Assuming the content is uploaded to the EC2 instance
-s3.upload_file('/path/to/local/file', bucket_name, 'path/in/s3')
-
-Move content to S3 using a background process or Lambda: You can set up a Lambda function to trigger on new uploads to the EC2 instance and move them to S3.
-
+# Subscribe Lambda function to topics
+lambda_arn = 'arn:aws:lambda:region:account-id:function:YourLambdaFunctionName'
+for topic_arn in topic_arns.values():
+    subscribe_lambda_to_topic(topic_arn, lambda_arn)
