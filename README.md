@@ -41,10 +41,10 @@ subnet_id2='subnet-06bd72b2e4cb41d10'
 security_group_id='sg-0effcd90abb742125'
 keypair_name='arpit-key-ec2'
 image_id='ami-0e42b3cc568cd07e3'
-bucket_name='s3-deploywebapp' 
-instance_id='i-0123456789abcdef0'
-instance_name='EC2-DeployWebApp'
 instance_type='t4g.micro'
+template_name='arpit-asg-template'
+bucket_name='s3-deploywebapp'
+instance_name='EC2-DeployWebApp'
 lb_name='LB-DeployWebApp'
 tg_name='TG-DeployWebApp'
 asg_name='ASG-DeployWebApp'
@@ -91,7 +91,7 @@ def create_ec2_instance():
                 {
             'ResourceType': 'instance',
             'Tags': [
-                {'Key': 'Name', 'Value': 'WebApp'},
+                {'Key': 'Name', 'Value': instance_name},
                     ]
                 }
             ]  
@@ -101,12 +101,13 @@ def create_ec2_instance():
         instance.reload()
         if instance.state['Name'] == 'running':
             print(f"Instance '{instance.id}' created and running successfully.")
+            return instance.id
         else:
             print(f"Instance '{instance.id}' creation failed.")
     except ClientError as e:
         print(f"Unexpected error: {e}")
 
-create_ec2_instance()
+instance_id=create_ec2_instance()
 
 # Deploy the web application onto the EC2 instance:
 
@@ -167,7 +168,7 @@ def create_auto_scaling_group():
         autoscaling.create_auto_scaling_group(
             AutoScalingGroupName=asg_name,
             LaunchTemplate={
-                'LaunchTemplateName': 'arpit-asg-template',
+                'LaunchTemplateName': template_name,
                 'Version': '$Latest'  # Use the latest version of the template
             },
             MinSize=1,
@@ -189,7 +190,7 @@ def create_auto_scaling_group():
                 'TargetValue': 50.0
             }
         )
-        print(f"Scaling policy created successfully: {scaling_policy['PolicyARN']}")
+        print(f"CPU utilization scaling policy created successfully: {scaling_policy['PolicyARN']}")
         # Configure scaling policies for network traffic
         scaling_policy = autoscaling.put_scaling_policy(
             AutoScalingGroupName=asg_name,
@@ -197,7 +198,7 @@ def create_auto_scaling_group():
             PolicyType='TargetTrackingScaling',
             TargetTrackingConfiguration={
                 'PredefinedMetricSpecification': {
-                    'PredefinedMetricType': 'ASGAverageNetworkInBytes'
+                    'PredefinedMetricType': 'ASGAverageNetworkIn'
                 },
                 'TargetValue': 1000000  # Adjust the target value as needed
             }
