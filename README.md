@@ -28,7 +28,7 @@ Objectives:
 - Gain a comprehensive understanding of key AWS services and their integration. - Understand the lifecycle of a dynamic web application and its infrastructure.
 - Learn how to automate infrastructure deployment and management tasks using boto3. - Experience with real-time monitoring and alerting systems.
   
-
+```
 import boto3
 from botocore.exceptions import ClientError
 
@@ -273,3 +273,4 @@ for topic in topics:
 lambda_arn = 'arn:aws:lambda:region:account-id:function:YourLambdaFunctionName'
 for topic_arn in topic_arns.values():
     subscribe_lambda_to_topic(topic_arn, lambda_arn)
+```
