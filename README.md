@@ -31,6 +31,7 @@ Objectives:
 ```
 import boto3
 from botocore.exceptions import ClientError
+import time
 
 # Replace with your actual values
 region='us-west-2'
@@ -48,9 +49,13 @@ instance_name='EC2-DeployWebApp'
 lb_name='LB-DeployWebApp'
 tg_name='TG-DeployWebApp'
 asg_name='ASG-DeployWebApp'
+file_path="index.html"
+object_key="index.html"
+instance_id=''
 
-# Create an S3 bucket
-def create_s3_bucket():
+
+# Function to create an S3 bucket:
+def create_s3_bucket_and_upload_object():
     s3 = boto3.client('s3', region_name=region)
     try:
         response = s3.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={'LocationConstraint': region})
@@ -66,19 +71,29 @@ def create_s3_bucket():
             print(f"Bucket '{bucket_name}' already exists and is owned by someone else.")
         else:
             print(f"Unexpected error: {e}")
-            
-create_s3_bucket()
+    
+    # Uploading static files to S3 bucket
+    try:
+        s3.upload_file(file_path, bucket_name, object_key)
+        print(f'File {file_path} uploaded to {bucket_name}/{object_key}')
+    except ClientError as e:
+        if error_code == 'FileNotFoundError':
+            print(f'The file {file_path} was not found')
+        else:
+            print(f"Unexpected error: {e}")
 
-# Launch an EC2 instance and configure it as a web server:
+
+# Function to create an EC2 instance and configure it as a web server:
 def create_ec2_instance():
     ec2 = boto3.resource('ec2', region_name=region)
     try:
         instances = ec2.create_instances(
             ImageId=image_id,
+            InstanceType=instance_type,
             MinCount=1,
             MaxCount=1,
-            InstanceType=instance_type,
             KeyName=keypair_name,
+            #SubnetId=subnet_id,
             SecurityGroupIds=[security_group_id],
             UserData='''#!/bin/bash
             sudo apt-get update -y
@@ -107,12 +122,9 @@ def create_ec2_instance():
     except ClientError as e:
         print(f"Unexpected error: {e}")
 
-instance_id=create_ec2_instance()
 
-# Deploy the web application onto the EC2 instance:
-
-# Load Balancing with ELB
-def create_load_balancer_and_register_targets():
+# Function to create ELB, create target groups and register them:
+def create_load_balancer_and_register_targets(instance_id):
     elbv2 = boto3.client('elbv2', region_name=region)
     try:
         # Create Load Balancer
@@ -130,7 +142,9 @@ def create_load_balancer_and_register_targets():
             Type='application',
             IpAddressType='ipv4'
         )
+        load_balancer_arn=response_lb['LoadBalancers'][0]['LoadBalancerArn']
         print(f"Load Balancer created successfully: {response_lb['LoadBalancers'][0]['LoadBalancerArn']}")
+        
         # Create Target Group
         response_tg = elbv2.create_target_group(
             Name=tg_name,
@@ -143,7 +157,9 @@ def create_load_balancer_and_register_targets():
             TargetType='instance'
         )
         print(f"Target Group created successfully: {response_tg['TargetGroups'][0]['TargetGroupArn']}")
+
         # Register target group
+        target_group_arn=response_tg['TargetGroups'][0]['TargetGroupArn']
         response_reg = elbv2.register_targets(
             TargetGroupArn=response_tg['TargetGroups'][0]['TargetGroupArn'],
             Targets=[
@@ -154,14 +170,20 @@ def create_load_balancer_and_register_targets():
             ]
         )
         print(f"Instance {instance_id} registered successfully in the target group.")
+
+        # Create a listener
+        elbv2.create_listener(LoadBalancerArn=load_balancer_arn,Protocol='HTTP',Port=80,
+            DefaultActions=[{'Type': 'forward', 'TargetGroupArn': target_group_arn}]
+        )
+
     except Exception as e:
         print(f"Error: {e}")
-
-create_load_balancer_and_register_targets()
+    outputs = [load_balancer_arn,target_group_arn]
+    return outputs
 
 
 # Auto Scaling Group (ASG) Configuration
-def create_auto_scaling_group():
+def create_auto_scaling_group(target_group_arn):
     autoscaling = boto3.client('autoscaling', region_name=region)
     try:
         # Create Auto Scaling Group using the Launch Template
@@ -175,13 +197,14 @@ def create_auto_scaling_group():
             MaxSize=2,
             DesiredCapacity=1,
             VPCZoneIdentifier=subnet_id,
-            TargetGroupARNs=['arn:aws:elasticloadbalancing:us-west-2:975050024946:targetgroup/TG-DeployWebApp/855af40abc3e9879']
+            TargetGroupARNs=[target_group_arn]
         )
-        print("Auto Scaling Group created successfully.")
+        print("Auto Scaling Group {asg_name} created successfully.")
+        
         # Configure scaling policies for CPU utilization
         scaling_policy = autoscaling.put_scaling_policy(
             AutoScalingGroupName=asg_name,
-            PolicyName='scale-out',
+            PolicyName='scale-out-cpu-utilization',
             PolicyType='TargetTrackingScaling',
             TargetTrackingConfiguration={
                 'PredefinedMetricSpecification': {
@@ -191,6 +214,7 @@ def create_auto_scaling_group():
             }
         )
         print(f"CPU utilization scaling policy created successfully: {scaling_policy['PolicyARN']}")
+        
         # Configure scaling policies for network traffic
         scaling_policy = autoscaling.put_scaling_policy(
             AutoScalingGroupName=asg_name,
@@ -207,7 +231,6 @@ def create_auto_scaling_group():
     except Exception as e:
         print(f"Error: {e}")
 
-create_auto_scaling_group()
 
 # SNS Notifications:
 def create_sns_topic(topic_name):
@@ -220,6 +243,8 @@ def create_sns_topic(topic_name):
         print(f"An unexpected error occurred: {str(e)}")
         return None
 
+
+# Subscribe lambda to all the topics:
 def subscribe_lambda_to_topic(topic_arn, lambda_arn):
     try:
         sns = boto3.client('sns')
@@ -232,45 +257,130 @@ def subscribe_lambda_to_topic(topic_arn, lambda_arn):
     except Exception as e:
         print(f"An unexpected error occurred: {str(e)}")
 
-def lambda_handler(event, context):
+
+# Function to setup the entire infrastructure:
+def create_infra_setup():
+    topics = ['HealthIssues', 'ScalingEvents', 'HighTraffic']
+    topic_arns = {}
+    lambda_arn = 'arn:aws:lambda:us-west-2:975050024946:function:Arpit-Infra-Checkup'  # Replace with your Lambda function name
+
+    # Create an S3 Bucket and upload index.html file:
+    create_s3_bucket_and_upload_object()
+
+    # Create an EC2 instance:
+    instance_id = create_ec2_instance()
+
+    # Create an ELB Load Balancer:
+    load_balancer_output = create_load_balancer_and_register_targets(instance_id)
+    load_balancer_arn = load_balancer_output[0]
+    target_group_arn = load_balancer_output[1]
+
+    # Create an auto scaling group:
+    create_auto_scaling_group(target_group_arn)
+
+    # Create topics and store their ARNs
+    for topic in topics:
+        arn = create_sns_topic(topic)
+        if arn:
+            topic_arns[topic] = arn
+
+    # Subscribe Lambda function to topics
+    for topic_arn in topic_arns.values():
+        subscribe_lambda_to_topic(topic_arn, lambda_arn)
+
+
+# Function to delete the entire infrastructure:
+def delete_infra_setup(instance_ids, load_balancer_arn, target_group, listener_arn, autoscalingName, policy_name, topic_name):
+    s3 = boto3.client('s3')
+    ec2 = boto3.client('ec2')
+    elb = boto3.client('elbv2')
+    autoscaling = boto3.client('autoscaling')
     sns = boto3.client('sns')
-    message = event['Records'][0]['Sns']['Message']
-    subject = event['Records'][0]['Sns']['Subject']
-    # Define the administrator's email and phone number
-    admin_email = 'admin@example.com'
-    admin_phone = '+1234567890'
+
+    # Delete all the files present in the S3 bucket:
     try:
-        # Send email notification
-        sns.publish(
-            TopicArn='arn:aws:sns:region:account-id:AdminNotifications',
-            Message=message,
-            Subject=subject
-        )
-        print(f"Successfully sent email notification to {admin_email}")
-        # Send SMS notification
-        sns.publish(
-            PhoneNumber=admin_phone,
-            Message=message
-        )
-        print(f"Successfully sent SMS notification to {admin_phone}")
+        paginator = s3.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=bucket_name)
+        for page in pages:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    s3.delete_object(Bucket=bucket_name, Key=obj['Key'])
+                    print(f'Deleted {obj["Key"]} from {bucket_name}')
     except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Notifications sent successfully!')
-    }
+        if e.response['Error']['Code'] == 'NoSuchBucket':
+            print(f"Bucket '{bucket_name}' not found")
+        else:
+            print(f"An error occurred: {e}")
 
-topics = ['HealthIssues', 'ScalingEvents', 'HighTraffic']
-topic_arns = {}
+    # Delete the S3 bucket:
+    try:
+        s3.delete_bucket(Bucket=bucket_name)
+        print(f'Bucket {bucket_name} deleted successfully')
 
-# Create topics and store their ARNs
-for topic in topics:
-    arn = create_sns_topic(topic)
-    if arn:
-        topic_arns[topic] = arn
+    except Exception as e:
+        if e.response['Error']['Code'] == 'NoSuchBucket':
+            print(f"Bucket '{bucket_name}' not found")
+        else:
+            print(f"An error occurred: {e}")
 
-# Subscribe Lambda function to topics
-lambda_arn = 'arn:aws:lambda:region:account-id:function:YourLambdaFunctionName'
-for topic_arn in topic_arns.values():
-    subscribe_lambda_to_topic(topic_arn, lambda_arn)
+    # Terminate EC2 instances:
+    try:
+        ec2.terminate_instances(InstanceIds=instance_ids)
+        print(f"Terminated EC2 instances: {', '.join(instance_ids)}")
+    except ClientError as e:
+        print(f"Failed to terminate instances {instance_ids}: {e}")
+
+    # Delete the Application Load Balancer:
+    try:
+        elb.delete_load_balancer(LoadBalancerArn=load_balancer_arn)
+        print(f"Deleted load balancer with ARN: {load_balancer_arn}")
+        time.sleep(1*60)
+    except ClientError as e:
+        print(f"Failed to delete load balancer {load_balancer_arn}: {e}")
+
+    # Delete the Target Group:
+    try:
+        elb.delete_target_group(TargetGroupArn=target_group)
+        print(f"Deleted target group: {target_group}")
+    except ClientError as  e:
+        print(f"Failed to delete target group {target_group}: {e}")
+
+    # Delete the Listener:
+    try:
+        elb.delete_listener(ListenerArn=listener_arn)
+        print(f"Deleted listener with ARN: {listener_arn}")
+    except ClientError as e:
+        print(f"Failed to delete listener {listener_arn}: {e}")
+
+    # Delete the Auto Scaling Group:
+    try:
+        autoscaling.delete_auto_scaling_group(AutoScalingGroupName=autoscalingName, ForceDelete=True)
+        print(f"Deleted auto scaling group: {autoscalingName}")
+    except ClientError as e:
+        print(f"Failed to delete auto scaling group {autoscalingName}: {e}")
+
+    # Delete the Auto Scaling policies:
+    try:
+        autoscaling.delete_policy(AutoScalingGroupName=asg_name, PolicyName=policy_name)
+        print(f"Deleted scaling policy: {policy_name} for Auto Scaling Group: {asg_name}")
+    except ClientError as e:
+        print(f"Failed to delete scaling policy {policy_name} for Auto Scaling Group {asg_name}: {e}")
+
+    # Delete SNS topics:
+    for topic_arn in topic_arn.values():
+        try:
+            sns.delete_topic(TopicArn=topic_arn)
+            print(f"Deleted SNS Topic: {topic_arn}")
+        except ClientError as e:
+                print(f"Error deleting SNS Topic {topic_name}:", e)
+
+
+if __name__ == "__main__":
+    action = input("Enter action: create or delete: ")
+    if action == "create":
+        create_infra_setup()
+    elif action == "delete":
+        delete_infra_setup(instance_ids=[], load_balancer_arn='', target_group='', listener_arn='', autoscalingName='', policy_name='', topic_name='')
+    else:
+        print("Invalid action. Please enter create or delete.")
 ```
