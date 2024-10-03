@@ -63,3 +63,25 @@
 ## Executed the script with action as 'delete':
 
 ![image](https://github.com/user-attachments/assets/1a9616c0-fce3-47cc-a121-1205b4edc4ca)
+
+
+## Open the S3 bucket in AWS portal that stores your web application's static files:
+Go to permissions and modify the S3 Bucket Policy as below:
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PublicReadGetObject",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::s3-deploywebapp/*"
+        }
+    ]
+}
+```
+Under Block public access (bucket settings) edit the configuration and Block all public access.
+Enable Static website hosting: Select Hosting type as Host a static website, Index document as index.html
+
+![image](https://github.com/user-attachments/assets/a390915b-bea0-431f-a4a6-c85905abb494)
