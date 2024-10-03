@@ -21,18 +21,18 @@
  - Create a single script using `boto3` that: 
  - Deploys the entire infrastructure. 
  - Updates any component as required. 
- - Tears down everything when the application is no longer needed. 
+ - Tears down everything when the application is no longer needed.
+   
+### The Python Boto3 script takes input from the user in the form of action. The user needs to specify 'create' to create the entire infrastructure or delete to delete the entire infrastructure.
 
+## Execution Steps:
 
-### The Python Boto3 code takes user input (create/delete) for creating or deleting the entire infrastructure.
-
-
-### Executed the script with action as 'create':
+### Step 1: Execute the script with action as 'create':
 
 ![image](https://github.com/user-attachments/assets/e240bfc2-4df4-4509-8d91-9e9113a927cb)
 
 
-### Validating whether all the resouces has been created
+### Validate whether all the resouces has been created:
 
 ![image](https://github.com/user-attachments/assets/2e0d588d-2971-45c6-88db-896d42bd64b2)
 
@@ -60,7 +60,7 @@
 ![image](https://github.com/user-attachments/assets/e27f3f63-059c-45c5-b70a-b0254701f508)
 
 
-## Executed the script with action as 'delete':
+## Step 2: Execute the script with the action 'delete':
 
 ![image](https://github.com/user-attachments/assets/1a9616c0-fce3-47cc-a121-1205b4edc4ca)
 
